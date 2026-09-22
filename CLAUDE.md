@@ -122,6 +122,15 @@ primeiro se o binário do `rlang` exigido já foi publicado para Windows
 (`https://cloud.r-project.org/bin/windows/contrib/4.4/PACKAGES`) antes de
 aceitar o upgrade.
 
+Mesmo padrão apareceu de novo com `duckdb`/`duckspatial` (dependências
+transitivas do `geobr`, não usadas diretamente pelo pipeline): metadado diz
+que existe `duckdb 1.5.5`, mas o binário Windows real ainda é `1.5.2`,
+então `renv::snapshot()` recusa por validação de versão. Como não usamos
+`duckdb` diretamente, contornado com
+`renv::snapshot(prompt = FALSE, force = TRUE)`. Se isso passar a dar
+problema de verdade (algo que use `duckdb` quebrando), o fix é o mesmo:
+checar se o binário real já foi publicado antes de forçar.
+
 ## Estrutura de pastas
 
 ```
@@ -175,16 +184,19 @@ Rscript -e 'renv::restore()'
 - Fase 1 (aquisição + leitura, piloto PE) completa: `R/01_aquisicao.R` e
   `R/02_leitura.R` implementados e validados contra resultado oficial
   conhecido (ver seção "Layout real do dataset TSE" acima).
-- Crosswalk TSE↔IBGE (Fase 3) já disponível em
-  `data-raw/ref/linkador_bases.xlsx` (fornecido pelo usuário, não precisa
-  ser construído do zero) — adicionar `readxl` à lista de pacotes do
-  `renv` ao implementar `R/04_crosswalk.R`.
-- Escopo ampliado (ainda não implementado): microrregião e mesorregião
-  como unidades de análise adicionais (município e UF já estavam no
-  escopo original) — ver decisão de arquitetura acima. `geobr`, `sf`,
-  `httr2@1.2.3` já instalados e validados no `renv` para isso.
-- Próximo passo: Fase 2 (limpeza — `R/03_limpeza.R`), seguida de Fase 3
-  (crosswalk/join geográfico, incluindo o de-para espacial de
-  meso/microrregião). Ver
+- Fase 2 (limpeza — `R/03_limpeza.R`) completa: agrega por município/turno,
+  soma zonas, calcula `pct_validos`. Validado (10 testes): % soma 100 por
+  município, só cargos relevantes (Presidente/Governador/Senador), mesmos
+  números da Fase 1.
+- Fase 3 (crosswalk/join geográfico) completa:
+  - `R/04_crosswalk.R` — TSE→IBGE via `data-raw/ref/linkador_bases.xlsx`
+    (fornecido pelo usuário), join por `CD_MUNICIPIO` + `SG_UF`. Validado:
+    185/185 municípios de PE casados, 0 sem correspondência.
+  - `R/05_geo_join.R` — geometria via `geobr` + de-para
+    município→meso/microrregião por join espacial (sem tabela externa).
+    Validado: 185/185 municípios de PE com meso/microrregião atribuída,
+    Recife → "Metropolitana de Recife", Fernando de Noronha corretamente
+    isolado como microrregião própria.
+- Próximo passo: Fase 4 (cores — `R/06_cores.R`). Ver
   `C:\Users\felip\.claude\plans\proud-growing-metcalfe.md` para o plano de
   fases completo.

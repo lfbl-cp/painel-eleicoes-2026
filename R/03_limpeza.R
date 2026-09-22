@@ -8,6 +8,29 @@
 
 CARGOS_RELEVANTES <- c("Presidente", "Governador", "Senador")
 
+# Conectivos que ficam minúsculos ao normalizar nome de candidato (exceto
+# quando é a primeira palavra), igual a convenção usual de nome próprio em
+# português.
+CONECTIVOS_NOME_MINUSCULOS <- c("de", "da", "do", "das", "dos", "e")
+
+#' Normaliza um nome vindo em CAIXA ALTA do TSE para só a 1ª letra de cada
+#' palavra maiúscula (ex.: "RAQUEL LYRA" -> "Raquel Lyra"), mantendo
+#' conectivos como "de"/"da"/"dos" em minúsculo.
+#'
+#' @param nome Vetor de caracteres.
+normalizar_nome_candidato <- function(nome) {
+  vapply(nome, function(n) {
+    if (is.na(n)) return(NA_character_)
+    palavras <- strsplit(tolower(n), " ", fixed = TRUE)[[1]]
+    palavras <- vapply(seq_along(palavras), function(i) {
+      p <- palavras[i]
+      if (i > 1 && p %in% CONECTIVOS_NOME_MINUSCULOS) return(p)
+      paste0(toupper(substr(p, 1, 1)), substr(p, 2, nchar(p)))
+    }, character(1))
+    paste(palavras, collapse = " ")
+  }, character(1), USE.NAMES = FALSE)
+}
+
 #' Agrega o CSV de uma UF (ou "BR", para presidente) por município,
 #' somando zonas, e calcula o % de votos válidos de cada candidato dentro
 #' do seu cargo/turno/município.
@@ -15,6 +38,7 @@ CARGOS_RELEVANTES <- c("Presidente", "Governador", "Senador")
 #' @param dados Tibble de `ler_votacao_munzona()`.
 limpar_votacao <- function(dados) {
   relevantes <- dados[dados$DS_CARGO %in% CARGOS_RELEVANTES, ]
+  relevantes$NM_URNA_CANDIDATO <- normalizar_nome_candidato(relevantes$NM_URNA_CANDIDATO)
 
   por_candidato <- dplyr::summarise(
     dplyr::group_by(

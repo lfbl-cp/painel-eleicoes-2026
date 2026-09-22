@@ -49,12 +49,42 @@ agregar_por_unidade <- function(dados_municipio, crosswalk_meso_micro, unidade) 
 }
 
 #' Vencedor (maior número de votos) por unidade/cargo/turno, a partir do
-#' resultado de `agregar_por_unidade()`.
+#' resultado de `agregar_por_unidade()`, com margem de vitória e uma
+#' classificação de intensidade ("alta"/"baixa") em duas tonalidades, como
+#' no protótipo antigo (`gov pe 2.R`/`senado pe 2.R`).
+#'
+#' A margem é sempre `% do 1º colocado - % do 2º colocado` na unidade (100
+#' quando o candidato é o único concorrente). A intensidade é um corte pela
+#' mediana das margens *dentro das unidades que aquele candidato venceu*
+#' (mesmo critério do protótipo antigo) — "alta" acima da mediana, "baixa"
+#' caso contrário. Quanto menos unidades um candidato vence, menos sentido
+#' estatístico esse corte tem: funciona bem em município (muitas
+#' unidades), fica grosseiro em mesorregião, e é degenerado quando um
+#' candidato só vence 1 unidade (sempre cai em "baixa", não tem o que
+#' comparar).
 calcular_vencedor <- function(dados_agregados) {
-  vencedores <- dplyr::slice_max(
-    dplyr::group_by(dados_agregados, .data$ANO_ELEICAO, .data$NR_TURNO, .data$DS_CARGO, .data$unidade_id),
-    order_by = .data$votos, n = 1, with_ties = FALSE
+  ordenado <- dplyr::arrange(
+    dados_agregados,
+    .data$ANO_ELEICAO, .data$NR_TURNO, .data$DS_CARGO, .data$unidade_id,
+    dplyr::desc(.data$votos)
   )
 
-  dplyr::ungroup(vencedores)
+  com_margem <- dplyr::mutate(
+    dplyr::group_by(ordenado, .data$ANO_ELEICAO, .data$NR_TURNO, .data$DS_CARGO, .data$unidade_id),
+    margem = .data$pct_validos[1] - dplyr::coalesce(dplyr::nth(.data$pct_validos, 2), 0)
+  )
+  com_margem <- dplyr::ungroup(com_margem)
+
+  vencedores <- dplyr::slice_max(
+    dplyr::group_by(com_margem, .data$ANO_ELEICAO, .data$NR_TURNO, .data$DS_CARGO, .data$unidade_id),
+    order_by = .data$votos, n = 1, with_ties = FALSE
+  )
+  vencedores <- dplyr::ungroup(vencedores)
+
+  com_intensidade <- dplyr::mutate(
+    dplyr::group_by(vencedores, .data$ANO_ELEICAO, .data$NR_TURNO, .data$DS_CARGO, .data$SQ_CANDIDATO),
+    intensidade = dplyr::if_else(.data$margem > stats::median(.data$margem), "alta", "baixa")
+  )
+
+  dplyr::ungroup(com_intensidade)
 }

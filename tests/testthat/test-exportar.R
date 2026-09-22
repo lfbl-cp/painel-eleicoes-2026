@@ -20,13 +20,16 @@ testthat::test_that("montar_resultado_unidade monta vencedores/candidatos com co
     SQ_CANDIDATO = c(1, 2),
     NM_URNA_CANDIDATO = c("FULANO", "SICRANO"),
     SG_PARTIDO = c("PT", "PL"),
-    pct_validos = c(60, 60)
+    pct_validos = c(60, 60),
+    margem = c(20, 20),
+    intensidade = c("alta", "baixa")
   )
 
   resultado <- montar_resultado_unidade(dados_agregados, vencedores, "municipio", tabela_cores)
 
   testthat::expect_equal(resultado$vencedores$A$nome, "FULANO")
   testthat::expect_equal(resultado$vencedores$A$cor, "#C0272D")
+  testthat::expect_equal(resultado$vencedores$A$intensidade, "alta")
   testthat::expect_equal(resultado$vencedores$B$cor, "#003882")
   testthat::expect_equal(resultado$candidatos[["1"]]$cor, "#C0272D")
   testthat::expect_equal(resultado$candidatos[["1"]]$valores$A, 60)

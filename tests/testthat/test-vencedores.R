@@ -26,12 +26,23 @@ testthat::test_that("vencedor por UF bate com o resultado nacional (governador P
   gov2 <- juntado[juntado$DS_CARGO == "Governador" & juntado$NR_TURNO == 2, ]
 
   vencedor_uf <- calcular_vencedor(agregar_por_unidade(gov2, cw_meso_micro, "uf"))
-  testthat::expect_equal(vencedor_uf$NM_URNA_CANDIDATO, "RAQUEL LYRA")
+  testthat::expect_equal(vencedor_uf$NM_URNA_CANDIDATO, "Raquel Lyra")
   testthat::expect_equal(vencedor_uf$pct_validos, 58.70, tolerance = 0.05)
+  # só 1 UF no piloto -> margem = pct do 1º - pct do 2º, mas o corte por
+  # mediana de "intensidade" é degenerado com um único caso (sempre "baixa")
+  testthat::expect_equal(vencedor_uf$margem, 58.70 - 41.30, tolerance = 0.05)
+  testthat::expect_equal(vencedor_uf$intensidade, "baixa")
 
   vencedor_muni <- calcular_vencedor(agregar_por_unidade(gov2, cw_meso_micro, "municipio"))
   testthat::expect_equal(nrow(vencedor_muni), 185)
-  testthat::expect_equal(sum(vencedor_muni$NM_URNA_CANDIDATO == "RAQUEL LYRA"), 105)
+  testthat::expect_equal(sum(vencedor_muni$NM_URNA_CANDIDATO == "Raquel Lyra"), 105)
+  testthat::expect_true(all(vencedor_muni$margem >= 0))
+  testthat::expect_true(all(vencedor_muni$intensidade %in% c("alta", "baixa")))
+  # dentro dos municípios que a Raquel venceu, "alta" tem que ser
+  # estritamente as margens maiores que a mediana
+  margens_raquel <- vencedor_muni$margem[vencedor_muni$NM_URNA_CANDIDATO == "Raquel Lyra"]
+  intensidade_raquel <- vencedor_muni$intensidade[vencedor_muni$NM_URNA_CANDIDATO == "Raquel Lyra"]
+  testthat::expect_equal(intensidade_raquel == "alta", margens_raquel > stats::median(margens_raquel))
 
   vencedor_meso <- calcular_vencedor(agregar_por_unidade(gov2, cw_meso_micro, "mesorregiao"))
   testthat::expect_equal(nrow(vencedor_meso), 5)

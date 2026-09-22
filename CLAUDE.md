@@ -236,9 +236,95 @@ Rscript -e 'renv::restore()'
   `output/geo/{municipios,mesorregioes,microrregioes}_PE.topojson` e 12
   arquivos em `output/results/2022/`, todos com cor preenchida em todo
   candidato/vencedor e LISA presente em nível de município.
-- Próximo passo: front-end estático (`frontend/`) consumindo esses
-  arquivos de `output/`, para validar visualmente os 3 modos (vencedor,
-  candidato isolado contínuo, LISA) contra os mapas do protótipo antigo —
-  gate antes de escalar para as 27 UFs. Ver
+- Front-end estático (`frontend/`) implementado: Leaflet + `topojson-client`
+  via CDN, sem build step. Seletores Cargo/Turno/Unidade/Modo/Candidato
+  populados dinamicamente a partir de `output/index.json` (nada
+  hardcoded). Modo "Candidato isolado (contínuo)" interpola branco → cor
+  do candidato pelo `%`; modo LISA usa paleta fixa HH/LL/HL/LH/Não
+  significante; ambos só ficam disponíveis pra unidade "município" onde
+  faz sentido (LISA) ou sempre (contínuo). Unidade "UF" fica de fora do
+  seletor por enquanto — não exportamos um TopoJSON de contorno estadual
+  ainda (só relevante em escala nacional, com as 27 UFs desenhadas juntas).
+  `BASE = ".."` em `frontend/js/dados.js` assume `frontend/` e `output/`
+  como pastas irmãs — ajustar se a estrutura de hospedagem final mudar.
+  Dois bugs encontrados e corrigidos ao validar a cadeia completa: (1) a
+  cor sumia silenciosamente no JSON exportado (mesma causa raiz do bug já
+  descrito acima); (2) `arquivo_geo` da unidade "uf" virava a string
+  literal `"NA"` em vez de `null` no JSON — `file.path()` converte `NA`
+  em `"NA"` ao concatenar com `paste()`, então o problema nunca chegava
+  no `jsonlite`, já nascia errado no `file.path()`.
+  **Verificação feita**: servidor estático local (`python -m http.server`)
+  confirmou que todo caminho referenciado por `index.json` e pelo HTML
+  resolve (200) sem 404; os 5 vencedores por mesorregião (Governador PE
+  2022, 2º turno) foram conferidos um a um contra o resultado já validado
+  na Fase 5 — todos batem, com cor e `%` corretos. **Não verificado**:
+  render visual real num navegador (sem ferramenta de automação de
+  browser disponível neste ambiente) — abrir
+  `http://localhost:PORTA/frontend/index.html` (servindo a raiz do
+  projeto) e conferir visualmente os 3 modos ainda é um passo pendente
+  antes de considerar essa fase encerrada.
+- Ajustes pedidos pelo usuário após a 1ª validação visual, todos
+  aplicados:
+  - **Vencedor em duas tonalidades por margem** (como no protótipo
+    antigo): `calcular_vencedor()` (`R/07_vencedores.R`) agora calcula
+    `margem` (`%` do 1º - `%` do 2º colocado na unidade) e `intensidade`
+    ("alta"/"baixa", corte pela mediana das margens *dentro das unidades
+    que aquele candidato venceu* — mesmo critério do protótipo). Isso
+    generaliza igual pras 4 unidades, mas faz cada vez menos sentido
+    estatístico quanto menos unidades um candidato ganha — degenerado com
+    1 UF só (sempre cai em "baixa"), só é realmente útil em escala
+    nacional pra unidade UF. `frontend/js/cores.js` ganhou
+    `escurecer()`; o front-end escurece a cor do vencedor pra "alta" e
+    clareia pra "baixa" (`estiloVencedor()` em `mapa.js`), com 2 linhas
+    por candidato na legenda.
+  - **Tema claro/escuro**, escuro por padrão: `frontend/js/tema.js`
+    alterna `body[data-tema]`, troca o tile layer do Leaflet (ver `TILES`
+    em `mapa.js`) e lembra a preferência em `localStorage`. Variáveis de
+    cor em `:root`/`body[data-tema="claro"]` no CSS. Tile do tema escuro
+    trocado depois de um ajuste — ver bullet abaixo.
+  - **Painel de filtros flutuante**: `#controles` virou `position:
+    absolute` sobre o mapa (que agora ocupa a tela inteira), com
+    `L.DomEvent.disableClickPropagation`/`disableScrollPropagation` pra
+    interagir com os seletores não mexer no mapa por baixo.
+  - **Contorno preto ao clicar removido; popup no lugar de tooltip**:
+    Leaflet dá foco (outline) ao polígono clicado por padrão — CSS
+    `.leaflet-interactive:focus { outline: none; }` tira isso.
+    `layer.bindTooltip()` (hover) virou `layer.bindPopup()` (clique).
+- Ajustes pedidos pelo usuário na 2ª validação visual, todos aplicados:
+  - **Tile do tema escuro trocado de CartoDB Dark Matter para Esri World
+    Dark Gray Base**: o CartoDB (`basemaps.cartocdn.com`) passou a exigir
+    API key (cadastro gratuito na CARTO) — sem chave, as tiles hoje só
+    devolvem um aviso "API KEY REQUIRED" em vez do mapa (confirmado via
+    `curl` direto na URL). Trocado em `TILES.escuro` (`frontend/js/mapa.js`)
+    por `services.arcgisonline.com/.../Canvas/World_Dark_Gray_Base`, que
+    não exige chave nem cadastro. Se precisar trocar de novo no futuro,
+    testar a URL crua com `curl` antes de assumir que funciona — o erro
+    vem como uma tile válida (200 OK, imagem), não como erro HTTP, então
+    só aparece testando visualmente.
+  - **Nome de candidato normalizado**: o TSE manda `NM_URNA_CANDIDATO` em
+    CAIXA ALTA (ex. "RAQUEL LYRA"). `normalizar_nome_candidato()`, nova em
+    `R/03_limpeza.R`, deixa só a 1ª letra de cada palavra maiúscula
+    (conectivos "de"/"da"/"do"/"dos"/"das"/"e" ficam minúsculos, exceto
+    se forem a 1ª palavra), aplicada dentro de `limpar_votacao()` — assim
+    o nome já sai normalizado de um único lugar e propaga para
+    vencedores/legenda/popup sem precisar mexer no front-end. Pipeline
+    reexecutado para PE após a mudança; testes que comparavam contra o
+    literal `"RAQUEL LYRA"` (`test-vencedores.R`, `test-lisa.R`)
+    atualizados para `"Raquel Lyra"` — `test-leitura.R` continua
+    comparando a versão crua (lê direto de `ler_votacao_munzona()`, antes
+    da normalização, de propósito).
+  - **Botão de tema em texto**: trocado o emoji 🌙/☀️ por texto
+    "Escuro"/"Claro" (`tema.js` + estado inicial no HTML), botão passou de
+    quadrado fixo pra largura automática com padding (CSS).
+  - **Legenda do modo vencedor sem duplicar linha por candidato**: antes
+    mostrava 2 linhas por candidato (uma por intensidade); agora mostra 1
+    linha só, sempre no tom mais escuro (`Cores.escurecer(cor, 0.25)`), e
+    uma nota fixa abaixo da legenda explicando que tom mais escuro =
+    margem maior e mais claro = margem menor (`seletores.js` +
+    `.legenda-nota` no CSS).
+  - **Linhas dos polígonos mais finas**: `weight` de todos os estilos em
+    `mapa.js` (vencedor/isolado/LISA) baixado de `1` para `0.4`.
+- Próximo passo: usuário validar visualmente no navegador de novo;
+  depois disso, escala nacional (27 UFs) — ver
   `C:\Users\felip\.claude\plans\proud-growing-metcalfe.md` para o plano de
   fases completo.

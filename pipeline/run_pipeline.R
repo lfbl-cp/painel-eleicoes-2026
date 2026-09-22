@@ -79,12 +79,18 @@ processar_uf <- function(ano, uf, diretorio_saida = "output") {
           uf = uf, cargo = cargo, turno = turno, unidade = unidade,
           lisa_disponivel = unidade == "municipio",
           arquivo_resultado = caminho,
-          arquivo_geo = file.path(diretorio_saida, "geo", switch(unidade,
-            municipio = sprintf("municipios_%s.topojson", uf),
-            microrregiao = sprintf("microrregioes_%s.topojson", uf),
-            mesorregiao = sprintf("mesorregioes_%s.topojson", uf),
-            uf = NA_character_
-          ))
+          # file.path() transformaria NA em "NA" (paste() faz isso ao
+          # concatenar), por isso o NA_character_ é tratado fora do
+          # file.path() — "uf" ainda não tem TopoJSON de contorno estadual.
+          arquivo_geo = if (unidade == "uf") {
+            NA_character_
+          } else {
+            file.path(diretorio_saida, "geo", switch(unidade,
+              municipio = sprintf("municipios_%s.topojson", uf),
+              microrregiao = sprintf("microrregioes_%s.topojson", uf),
+              mesorregiao = sprintf("mesorregioes_%s.topojson", uf)
+            ))
+          }
         )
       }
     }

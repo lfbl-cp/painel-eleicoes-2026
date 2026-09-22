@@ -36,7 +36,7 @@ testthat::test_that("calcular_lisa reproduz clusters espacialmente plausíveis (
 
   gov2_raquel <- juntado[
     juntado$DS_CARGO == "Governador" & juntado$NR_TURNO == 2 &
-      juntado$NM_URNA_CANDIDATO == "RAQUEL LYRA",
+      juntado$NM_URNA_CANDIDATO == "Raquel Lyra",
   ]
 
   municipios_pe <- obter_municipios_sf("PE")

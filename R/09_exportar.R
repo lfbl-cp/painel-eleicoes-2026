@@ -66,7 +66,9 @@ montar_resultado_unidade <- function(dados_agregados, vencedores, unidade,
       nome = vencedores$NM_URNA_CANDIDATO[[i]],
       partido = vencedores$SG_PARTIDO[[i]],
       cor = cor_partido(vencedores$SG_PARTIDO[[i]], tabela_cores),
-      pct = round(vencedores$pct_validos[[i]], 2)
+      pct = round(vencedores$pct_validos[[i]], 2),
+      margem = round(vencedores$margem[[i]], 2),
+      intensidade = vencedores$intensidade[[i]]
     )
   })
   names(vencedores_lista) <- as.character(vencedores$unidade_id)
@@ -83,7 +85,7 @@ montar_resultado_unidade <- function(dados_agregados, vencedores, unidade,
 #' Escreve o resultado montado por `montar_resultado_unidade()` como JSON.
 exportar_resultado_json <- function(resultado, caminho) {
   dir.create(dirname(caminho), recursive = TRUE, showWarnings = FALSE)
-  jsonlite::write_json(resultado, caminho, auto_unbox = TRUE, digits = 4, null = "null")
+  jsonlite::write_json(resultado, caminho, auto_unbox = TRUE, digits = 4, null = "null", na = "null")
   invisible(caminho)
 }
 
@@ -96,6 +98,6 @@ montar_index <- function(entradas) {
 
 exportar_index_json <- function(index, caminho = "output/index.json") {
   dir.create(dirname(caminho), recursive = TRUE, showWarnings = FALSE)
-  jsonlite::write_json(index, caminho, auto_unbox = TRUE, digits = 4, null = "null")
+  jsonlite::write_json(index, caminho, auto_unbox = TRUE, digits = 4, null = "null", na = "null")
   invisible(caminho)
 }

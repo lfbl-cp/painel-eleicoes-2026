@@ -197,6 +197,15 @@ Rscript -e 'renv::restore()'
     Validado: 185/185 municípios de PE com meso/microrregião atribuída,
     Recife → "Metropolitana de Recife", Fernando de Noronha corretamente
     isolado como microrregião própria.
-- Próximo passo: Fase 4 (cores — `R/06_cores.R`). Ver
+- Fase 4 (cores — `R/06_cores.R`) completa: tabela de referência
+  (`data-raw/ref/partidos_cores.csv`, ~25 partidos conhecidos — primeira
+  versão, cores aproximadas, ajustar manualmente se necessário) + fallback
+  determinístico por hash da sigla (HSL com saturação/luminosidade fixas)
+  para qualquer partido não catalogado. Override opcional por candidato em
+  `data-raw/ref/candidatos_cores_override.csv` (vazio por padrão).
+  Validado: os 10 candidatos ao governo de PE no 1º turno de 2022 saem com
+  10 cores distintas (5 de partidos catalogados, 5 geradas por hash).
+- Próximo passo: Fase 5 (vencedores — `R/07_vencedores.R`, agregação
+  parametrizada por município/microrregião/mesorregião/UF). Ver
   `C:\Users\felip\.claude\plans\proud-growing-metcalfe.md` para o plano de
   fases completo.

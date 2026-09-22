@@ -205,7 +205,13 @@ Rscript -e 'renv::restore()'
   `data-raw/ref/candidatos_cores_override.csv` (vazio por padrão).
   Validado: os 10 candidatos ao governo de PE no 1º turno de 2022 saem com
   10 cores distintas (5 de partidos catalogados, 5 geradas por hash).
-- Próximo passo: Fase 5 (vencedores — `R/07_vencedores.R`, agregação
-  parametrizada por município/microrregião/mesorregião/UF). Ver
+- Fase 5 (vencedores — `R/07_vencedores.R`) completa: `agregar_por_unidade()`
+  soma votos na unidade pedida (município/microrregião/mesorregião/UF) e
+  recalcula `pct_validos` em relação ao total da unidade;
+  `calcular_vencedor()` pega o maior votado por unidade/cargo/turno.
+  Validado nas 4 unidades para governador PE 2022 2º turno: resultado por
+  UF bate exatamente com o número nacional já validado na Fase 1 (Raquel
+  Lyra 3.113.415 votos, 58,70%); `pct_validos` soma 100 em toda unidade.
+- Próximo passo: Fase 6 (LISA — `R/08_lisa.R`, só município). Ver
   `C:\Users\felip\.claude\plans\proud-growing-metcalfe.md` para o plano de
   fases completo.

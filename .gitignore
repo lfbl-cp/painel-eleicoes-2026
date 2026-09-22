@@ -1,0 +1,16 @@
+# Dados brutos e derivados (grandes, reproduzíveis via pipeline/run_pipeline.R)
+/data/
+/data-raw/downloads/
+
+# renv
+/renv/library/
+/renv/local/
+/renv/staging/
+.Rproj.user/
+.Rhistory
+.RData
+.Ruserdata
+
+# SO
+.DS_Store
+Thumbs.db

@@ -1,0 +1,20 @@
+# Parâmetros padrão do pipeline. Sobrescritos via linha de comando
+# (Rscript pipeline/run_pipeline.R --ano=2022 --uf=PE) quando informados.
+
+ano_padrao: 2022
+uf_padrao: "PE"   # "all" para rodar as 27 UFs
+
+cargos:
+  - PRESIDENTE
+  - GOVERNADOR
+  - SENADOR
+
+turnos: [1, 2]
+
+lisa:
+  alpha: 0.05      # limiar de significância para classificar cluster
+  vizinhanca: "queen"
+
+simplificacao_geo:
+  brasil: 0.03     # keep ratio (rmapshaper::ms_simplify) para visão nacional
+  uf: 0.15         # keep ratio para visão de estado individual

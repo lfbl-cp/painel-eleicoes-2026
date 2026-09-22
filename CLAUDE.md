@@ -212,6 +212,17 @@ Rscript -e 'renv::restore()'
   Validado nas 4 unidades para governador PE 2022 2º turno: resultado por
   UF bate exatamente com o número nacional já validado na Fase 1 (Raquel
   Lyra 3.113.415 votos, 58,70%); `pct_validos` soma 100 em toda unidade.
-- Próximo passo: Fase 6 (LISA — `R/08_lisa.R`, só município). Ver
+- Fase 6 (LISA — `R/08_lisa.R`) completa, só município:
+  `construir_vizinhanca()` (`spdep::poly2nb(queen=TRUE)`, com município-ilha
+  sem vizinho por contiguidade — ex. Fernando de Noronha — recebendo o
+  vizinho mais próximo por distância, nos dois sentidos);
+  `calcular_lisa()` (`spdep::localmoran_perm()`, quadrante HH/LL/HL/LH via
+  `Pr(folded) Sim`, "Não significante" quando p ≥ alpha). Validado com %
+  de votos da Raquel Lyra (governador PE 2022, 2º turno): clusters HH
+  concentrados no Agreste (Caruaru 83,4%) e LL no Sertão do São Francisco
+  (Belém do São Francisco 28,9%) — geograficamente coerente; Fernando de
+  Noronha processado sem erro.
+- Próximo passo: Fase 7 (exportação — `R/09_exportar.R`, TopoJSON +
+  atributos + `index.json`). Ver
   `C:\Users\felip\.claude\plans\proud-growing-metcalfe.md` para o plano de
   fases completo.

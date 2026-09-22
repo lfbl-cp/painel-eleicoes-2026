@@ -222,7 +222,23 @@ Rscript -e 'renv::restore()'
   concentrados no Agreste (Caruaru 83,4%) e LL no Sertão do São Francisco
   (Belém do São Francisco 28,9%) — geograficamente coerente; Fernando de
   Noronha processado sem erro.
-- Próximo passo: Fase 7 (exportação — `R/09_exportar.R`, TopoJSON +
-  atributos + `index.json`). Ver
+- Fase 7 (exportação — `R/09_exportar.R`) completa: `exportar_topojson()`
+  (`rmapshaper::ms_simplify` + `geojsonio::topojson_write`, geometria de
+  PE caiu de 18.167 para 5.059 vértices com `keep=0.15`, arquivo de
+  148KB); `montar_resultado_unidade()` monta vencedores + candidatos
+  (valores por unidade + LISA quando é município) — a cor é calculada
+  *na hora da exportação*, não antes da agregação (`agregar_por_unidade()`
+  não preserva colunas fora do `group_by`, então carregar a cor cedo e
+  tentar arrastá-la pela agregação some silenciosamente sem erro — bug já
+  encontrado e corrigido). `pipeline/run_pipeline.R` orquestra tudo
+  (`processar_uf(ano, uf)`) e já rodou de ponta a ponta para PE
+  (Governador + Senador, 1º/2º turno, 4 unidades): gerou
+  `output/geo/{municipios,mesorregioes,microrregioes}_PE.topojson` e 12
+  arquivos em `output/results/2022/`, todos com cor preenchida em todo
+  candidato/vencedor e LISA presente em nível de município.
+- Próximo passo: front-end estático (`frontend/`) consumindo esses
+  arquivos de `output/`, para validar visualmente os 3 modos (vencedor,
+  candidato isolado contínuo, LISA) contra os mapas do protótipo antigo —
+  gate antes de escalar para as 27 UFs. Ver
   `C:\Users\felip\.claude\plans\proud-growing-metcalfe.md` para o plano de
   fases completo.

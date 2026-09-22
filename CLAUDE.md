@@ -2,8 +2,9 @@
 
 ## Propósito
 
-Painel público, interativo, de resultados eleitorais municipais do Brasil
-(presidente, governador, senador — 1º e 2º turno), cobrindo as 27 UFs. Usa
+Painel público, interativo, de resultados eleitorais do Brasil (presidente,
+governador, senador — 1º e 2º turno), cobrindo as 27 UFs, com resultado
+detalhado por município e agregação em microrregião, mesorregião e UF. Usa
 dados de 2022 como piloto/placeholder até a divulgação dos dados de 2026;
 trocar de eleição é reexecutar o pipeline com outro `--ano`, sem mudar
 arquitetura.
@@ -42,6 +43,17 @@ interativo.
   catalogado recebe cor determinística por hash da sigla.
 - **Camada de aquisição de dados desacoplada do resto do pipeline**, com
   fallback manual — ver seção abaixo.
+- **Unidades de análise: município (base), microrregião, mesorregião e
+  UF.** `geobr::read_municipality()` não traz código de meso/microrregião
+  por município — só `read_meso_region()`/`read_micro_region()`, que dão
+  os polígonos agregados sem o de-para. Em vez de depender de mais uma
+  fonte externa (IBGE API, outro arquivo manual), o de-para
+  município→meso/microrregião é **derivado por join espacial**
+  (`sf::st_join()` do centroide do município contra os polígonos de
+  meso/microrregião do `geobr`) — mesorregião e microrregião nunca cruzam
+  fronteira de UF, então a correspondência é 1:1 sem ambiguidade.
+  **LISA é só em nível de município** — microrregião/mesorregião/UF nunca
+  entram no LISA, só nas visões de vencedor e candidato isolado contínuo.
 
 ## Nota operacional: bloqueio de downloads do TSE (defeso eleitoral)
 
@@ -51,15 +63,64 @@ Em períodos próximos a eleições (defeso eleitoral), o portal
 
 1. Verifica primeiro se o arquivo já existe em
    `data-raw/downloads/{ano}/votacao_candidato_munzona/`.
-2. Se não existir, tenta baixar automaticamente via `httr2`.
-3. Se o download falhar (403/429/timeout — sintomas do bloqueio), a função
-   **não trava com erro genérico**: aborta com uma mensagem indicando a URL
-   do portal e o caminho exato onde salvar o arquivo, e grava um
+2. Se não existir, **não tenta baixar automaticamente** (dado o bloqueio
+   atual do TSE) — aborta com uma mensagem indicando a URL do portal e o
+   caminho exato onde salvar o arquivo, e grava um
    `README_DOWNLOAD_MANUAL.md` na pasta de destino.
-4. Nesse caso, baixe o ZIP manualmente pelo navegador em
-   dadosabertos.tse.jus.br e salve em
+3. Baixe o ZIP manualmente pelo navegador em dadosabertos.tse.jus.br
+   (Resultados → votação por candidato, município e zona) e salve em
    `data-raw/downloads/{ano}/votacao_candidato_munzona/`. O restante do
-   pipeline não diferencia arquivo baixado manualmente de automático.
+   pipeline não diferencia arquivo baixado manualmente de automático — um
+   fallback de download automático via `httr2` pode ser adicionado depois
+   do defeso eleitoral, sem mudar essa interface.
+
+## Layout real do dataset TSE "votação candidato/município/zona" (2022)
+
+Descoberto ao validar a Fase 1 com os dados de 2022 — vale checar se ainda é
+válido ao trocar para 2026:
+
+- O TSE distribui **um único ZIP nacional** por ano (não um ZIP por UF).
+  Dentro dele, um CSV por UF: `votacao_candidato_munzona_{ano}_{UF}.csv`
+  (ex.: `..._PE.csv`) — cobre só as eleições de **abrangência estadual**
+  (Governador, Senador, Deputado Federal, Deputado Estadual).
+- **Presidente é um arquivo separado, `..._BR.csv`**, pseudo-UF `"BR"`
+  (eleição de abrangência federal) — nacional, todos os municípios do
+  Brasil de uma vez, ~38MB. Não precisa de loop por UF para presidente.
+  `obter_dados_tse(ano, "BR")` já funciona, sem mudança de código, porque
+  `"BR"` é só mais um valor aceito onde a função espera uma UF.
+- Existe também `..._BRASIL.csv` (~4,3GB): é só a concatenação de todos os
+  CSVs estaduais por UF. **Não usar** — é redundante e pesado demais pra
+  ler de uma vez; a agregação nacional (Fase 7) deve ser feita por loop
+  sobre os arquivos por UF, não lendo esse consolidado.
+- O universo de "municípios" no arquivo `_BR.csv` inclui códigos especiais
+  de zonas eleitorais no exterior (votação de brasileiros fora do país) —
+  aparecem como município/UF extras que não existem no `geobr`. A Fase 2
+  (limpeza) precisa filtrar essas linhas antes do join geográfico.
+- `read.csv2()` com `fileEncoding = "latin1"` só funciona lendo de um
+  arquivo em disco — passar `encoding`/`fileEncoding` para uma conexão
+  `unz()` direto do ZIP dá erro de "string multibyte inválida". Por isso
+  `ler_votacao_munzona()` extrai o CSV do UF pedido para `data/interim/`
+  (cache, reaproveitado se já existir) antes de ler.
+- Validado contra resultado oficial conhecido: 2º turno Governador PE 2022
+  (Raquel Lyra 58,70% vs. Marília Arraes 41,30%, 185 municípios) e 2º turno
+  Presidente 2022 nacional (Lula 50,90% vs. Bolsonaro 49,10%).
+
+## Nota de ambiente: pin de `httr2@1.2.3`
+
+Encontrado ao instalar `geobr` (set/2026): a versão mais recente do `httr2`
+no CRAN exige `rlang >= 1.3.0`, mas o **binário Windows** do `rlang 1.3.0`
+para R 4.4 ainda não foi publicado (só a versão fonte existe). Tentar
+instalar essa versão baixa silenciosamente um zip com conteúdo de
+`rlang 1.2.0` — parece ter funcionado, mas quebra o carregamento de
+qualquer pacote que exija a versão nova de verdade. Corrigido fixando
+`httr2@1.2.3` (só exige `rlang >= 1.1.0`, compatível com o binário real
+disponível), instalado a partir do tarball fonte
+(`install.packages(path, type = "source", dependencies = FALSE)` —
+`httr2` é R puro, não precisa de Rtools). Se `renv::install("httr2")` ou
+`renv::restore()` tentar atualizar para uma versão mais nova, checar
+primeiro se o binário do `rlang` exigido já foi publicado para Windows
+(`https://cloud.r-project.org/bin/windows/contrib/4.4/PACKAGES`) antes de
+aceitar o upgrade.
 
 ## Estrutura de pastas
 
@@ -109,14 +170,21 @@ Rscript -e 'renv::restore()'
 
 ## Estado atual
 
-Projeto em bootstrap (estrutura de pastas + configuração + `renv` validado,
-incluindo `V8`/`rmapshaper` instalando corretamente via binário no Windows).
-Pipeline em R (`R/`, `pipeline/`) e front-end (`frontend/`) ainda não
-implementados — ver `C:\Users\felip\.claude\plans\proud-growing-metcalfe.md`
-para o plano de fases completo (piloto em PE antes de escalar para as 27
-UFs).
-
-O crosswalk TSE↔IBGE (Fase 3 do plano) já está disponível em
-`data-raw/ref/linkador_bases.xlsx` (fornecido pelo usuário, não precisa ser
-construído do zero) — adicionar `readxl` à lista de pacotes do `renv` ao
-implementar `R/04_crosswalk.R`.
+- Fase 0 (bootstrap) completa: estrutura de pastas, `renv` validado
+  (incluindo `V8`/`rmapshaper` via binário no Windows).
+- Fase 1 (aquisição + leitura, piloto PE) completa: `R/01_aquisicao.R` e
+  `R/02_leitura.R` implementados e validados contra resultado oficial
+  conhecido (ver seção "Layout real do dataset TSE" acima).
+- Crosswalk TSE↔IBGE (Fase 3) já disponível em
+  `data-raw/ref/linkador_bases.xlsx` (fornecido pelo usuário, não precisa
+  ser construído do zero) — adicionar `readxl` à lista de pacotes do
+  `renv` ao implementar `R/04_crosswalk.R`.
+- Escopo ampliado (ainda não implementado): microrregião e mesorregião
+  como unidades de análise adicionais (município e UF já estavam no
+  escopo original) — ver decisão de arquitetura acima. `geobr`, `sf`,
+  `httr2@1.2.3` já instalados e validados no `renv` para isso.
+- Próximo passo: Fase 2 (limpeza — `R/03_limpeza.R`), seguida de Fase 3
+  (crosswalk/join geográfico, incluindo o de-para espacial de
+  meso/microrregião). Ver
+  `C:\Users\felip\.claude\plans\proud-growing-metcalfe.md` para o plano de
+  fases completo.

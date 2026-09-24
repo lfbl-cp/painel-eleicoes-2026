@@ -7,7 +7,17 @@
   --campo-borda: #46484d;
 }
 
+/* `color-scheme` é o que faz o navegador desenhar controles nativos
+   (inclusive a barra de rolagem) no estilo escuro/claro certo — sem
+   isso, alguns motores de renderização (viewport embutido do VS Code
+   incluso) ignoram `scrollbar-color`/`::-webkit-scrollbar-*` abaixo e
+   desenham a barra de rolagem sempre no estilo claro do SO. */
+body[data-tema="escuro"] {
+  color-scheme: dark;
+}
+
 body[data-tema="claro"] {
+  color-scheme: light;
   --painel-fundo: rgba(255, 255, 255, 0.94);
   --painel-borda: rgba(0, 0, 0, 0.12);
   --texto: #222222;
@@ -47,6 +57,25 @@ body {
   color: var(--texto);
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
   backdrop-filter: blur(6px);
+  /* Firefox: sem isso, o scroll do painel usa a barra de rolagem clara
+     padrão do SO, que destoa (fica branca) sobre o painel escuro. */
+  scrollbar-color: var(--campo-borda) transparent;
+  scrollbar-width: thin;
+}
+
+/* Chrome/Edge/Safari não seguem scrollbar-color — mesmo ajuste via
+   pseudo-elementos do WebKit. */
+#controles::-webkit-scrollbar {
+  width: 8px;
+}
+
+#controles::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+#controles::-webkit-scrollbar-thumb {
+  background-color: var(--campo-borda);
+  border-radius: 4px;
 }
 
 #controles-topo {

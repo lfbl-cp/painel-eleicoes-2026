@@ -20,6 +20,10 @@ obter_micro_sf <- function(uf = "all", ano = 2020) {
   geobr::read_micro_region(code_micro = uf, year = ano)
 }
 
+obter_uf_sf <- function(uf = "all", ano = 2020) {
+  geobr::read_state(code_state = uf, year = ano)
+}
+
 #' Deriva o de-para município -> meso/microrregião por join espacial
 #' (centroide do município dentro do polígono de meso/microrregião).
 #'

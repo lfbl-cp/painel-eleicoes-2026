@@ -25,6 +25,7 @@ const Tema = (() => {
     document.getElementById("btn-tema").textContent = tema === "escuro" ? "Escuro" : "Claro";
     Mapa.definirTema(tema);
     salvar(tema);
+    document.dispatchEvent(new CustomEvent("tema-alterado"));
   }
 
   function iniciar() {

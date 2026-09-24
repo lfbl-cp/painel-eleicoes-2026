@@ -1,13 +1,16 @@
 // Helpers de cor: interpolação (branco -> cor do candidato) para o modo
 // contínuo, e paleta fixa pro LISA.
 const Cores = (() => {
+  // "Não significante" muda por tema: no escuro, o cinza claro padrão
+  // contrastava demais contra o fundo escuro (chamava mais atenção que
+  // os clusters de verdade); no claro, "mais discreto" é diluir a cor
+  // (opacidade menor) em vez de escurecer. As 4 cores de cluster (HH/LL/
+  // HL/LH) não mudam por tema.
   const PALETA_LISA = {
-    HH: "#d7191c",
-    LL: "#2c7bb6",
-    HL: "#fdae61",
-    LH: "#abd9e9",
-    "Não significante": "#e0e0e0",
+    escuro: { HH: "#d7191c", LL: "#2c7bb6", HL: "#fdae61", LH: "#abd9e9", "Não significante": "#4a4a4a" },
+    claro: { HH: "#d7191c", LL: "#2c7bb6", HL: "#fdae61", LH: "#abd9e9", "Não significante": "#d4d4d4" },
   };
+  const OPACIDADE_LISA_NAO_SIGNIFICANTE = { escuro: 0.9, claro: 0.5 };
 
   function hexParaRgb(hex) {
     const limpo = hex.replace("#", "");
@@ -48,9 +51,17 @@ const Cores = (() => {
     });
   }
 
-  function corLisa(cluster) {
-    return PALETA_LISA[cluster] || "#cccccc";
+  function corLisa(cluster, tema) {
+    const paleta = PALETA_LISA[tema] || PALETA_LISA.escuro;
+    return paleta[cluster] || "#cccccc";
   }
 
-  return { interpolarComBranco, escurecer, corLisa, PALETA_LISA };
+  function opacidadeLisa(cluster, tema) {
+    if (cluster === "Não significante") {
+      return OPACIDADE_LISA_NAO_SIGNIFICANTE[tema] ?? OPACIDADE_LISA_NAO_SIGNIFICANTE.escuro;
+    }
+    return 0.9;
+  }
+
+  return { interpolarComBranco, escurecer, corLisa, opacidadeLisa, PALETA_LISA };
 })();

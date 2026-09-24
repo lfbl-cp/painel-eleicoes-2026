@@ -324,7 +324,174 @@ Rscript -e 'renv::restore()'
     `.legenda-nota` no CSS).
   - **Linhas dos polígonos mais finas**: `weight` de todos os estilos em
     `mapa.js` (vencedor/isolado/LISA) baixado de `1` para `0.4`.
-- Próximo passo: usuário validar visualmente no navegador de novo;
-  depois disso, escala nacional (27 UFs) — ver
+- **Escala nacional (27 UFs + Presidente) completa** no pipeline R
+  (`pipeline/run_pipeline.R --ano=2022 --uf=all`):
+  - `UFS_BRASIL` lista as 26 UFs + DF; Presidente é processado como mais
+    um valor de `uf` ("BR", abrangência federal) na mesma
+    `processar_uf()` — `juntar_ibge()` já só traz os cargos presentes no
+    arquivo lido de cada UF, então "BR" naturalmente só produz Presidente
+    e as demais UFs só Governador/Senador, sem precisar de um caminho de
+    código separado. `--uf=all` processa `c(UFS_BRASIL, "BR")` num loop e
+    escreve um `index.json` único no final.
+  - `uf_para_geobr()` mapeia `"BR"` → `"all"` porque o `geobr` não conhece
+    o pseudo-UF do TSE (só UF real, código de município, ou `"all"`).
+  - Nova `obter_uf_sf()` (`R/05_geo_join.R`, via `geobr::read_state()`) +
+    export `ufs_{uf}.topojson` — a unidade "UF" agora tem geometria
+    própria (1 polígono por UF sozinha, ou as 27 juntas para `"BR"`),
+    resolvendo o `arquivo_geo = NA` que ficava pendente desde a Fase 7.
+  - **Bug encontrado e corrigido**: DF tem um único município (Brasília
+    — o DF não se subdivide em municípios como os outros estados), e
+    `spdep::poly2nb()` quebra com 1 polígono só (sem par de vizinhos
+    possível). `construir_vizinhanca()` só é chamada quando
+    `nrow(municipios_sf) > 1`; para DF, LISA municipal fica `NULL`
+    (mesmo tratamento que já existia pra unidades micro/meso/uf) — sem
+    vizinhos não há autocorrelação espacial pra medir, então não é uma
+    limitação, é o resultado correto.
+  - **Performance/tamanho validados antes de rodar tudo**: geometria
+    nacional de município (5.570 polígonos) baixa em ~14s via `geobr`;
+    `rmapshaper::ms_simplify(keep = 0.05)` (mais agressivo que o `0.15`
+    padrão só nesse caso — daria ~18MB no padrão) leva ~46s e gera
+    ~6MB; meso/micro/UF nacionais ficam pequenos mesmo no `keep` padrão
+    (0.81MB/1.79MB/0.3MB). LISA nacional: `construir_vizinhanca()` ~50s
+    (uma vez por UF processada) + ~7s por candidato em
+    `calcular_lisa(nsim=199)`. Rodada completa (27 UFs + BR):
+    ~272 combinações exportadas, output/ final em 31MB.
+  - **Validado**: total nacional de Presidente 2º turno recalculado do
+    zero bate exatamente com o já validado na Fase 1 (Lula 50,90% vs.
+    Bolsonaro 49,10%); 5.570 municípios no output; 27/27 UFs com
+    vencedor plausível contra o resultado real conhecido de 2022 (ex.:
+    Bolsonaro 76,1% em RR, Lula 72,1% na BA).
+- **Seletor de UF/abrangência no front-end**, pra consumir a escala
+  nacional: cadeia de seletores passou de Cargo → Turno → Unidade pra
+  Cargo → **UF** → Turno → Unidade (`sel-uf` novo em `index.html`,
+  `Seletores.popularUfs()` em `seletores.js`, wiring em `main.js`).
+  `NOMES_UF` mapeia sigla → nome completo do estado pro rótulo do
+  `<select>`, com `"BR"` (Presidente, abrangência federal) rotulado
+  "Brasil (nacional)" — pra Presidente, o seletor de UF sempre mostra
+  essa 1 opção só, já que não existe outro valor de `uf` nos dados.
+  A unidade "uf" (antes fora do seletor porque não tinha TopoJSON
+  próprio) agora é selecionável igual às outras 3 unidades, com
+  `PROPRIEDADE_POR_UNIDADE.uf = "abbrev_state"` (nome da coluna que o
+  `geobr::read_state()` usa) em `mapa.js`, e `name_state` como mais um
+  fallback pro nome da unidade no popup.
+  **Verificação feita**: sem ferramenta de automação de navegador neste
+  ambiente, a cadeia de seleção inteira (Cargo→UF→Turno→Unidade→arquivo)
+  foi simulada em R lendo `output/index.json` e conferindo que todo
+  `arquivo_geo`/`arquivo_resultado` resolvido existe em disco, pros 3
+  cargos (Presidente com 1 UF só, Governador/Senador com as 27) — todos
+  resolveram. Caminhos também conferidos via `curl` contra o servidor
+  estático local. **Não verificado**: render visual real no navegador.
+- Ajustes pedidos pelo usuário após ver o seletor de UF funcionando,
+  todos aplicados:
+  - **UF não reseta mais ao trocar outro filtro**: `Seletores.preencher()`
+    (`seletores.js`) agora preserva o valor atual do `<select>` quando
+    ele continua sendo uma opção válida no novo contexto, em vez de
+    sempre recomeçar do zero (o que fazia a UF voltar pro Acre — 1º em
+    ordem alfabética — toda vez que o Cargo mudava).
+  - **Presidente disponível por UF, não só nacional** — sem recomputar
+    nada: `gerar_entradas_presidente_por_uf()` (`pipeline/run_pipeline.R`)
+    pareia a geometria de cada UF (já existente,
+    `output/geo/municipios_{UF}.topojson` etc.) com o resultado nacional
+    do Presidente já exportado (`output/results/{ano}/BR_{unidade}_
+    presidente_t{turno}.json`) — como o código de cada unidade de uma UF
+    é sempre um subconjunto do universo nacional, a mesma geometria
+    "fatiada" já filtra pra unidades daquela UF automaticamente.
+    `lisa_disponivel = FALSE` sempre nessas combinações: o LISA foi
+    calculado relativo à vizinhança nacional inteira, mostrar como se
+    fosse local à UF seria enganoso, não só uma limitação técnica.
+  - **UF = Brasil disponível pra Governador/Senador**: como cada UF tem
+    sua própria eleição (candidatos diferentes), "nacional" aqui não é
+    agregação estatística — é a união lado a lado dos resultados já
+    exportados de cada UF sobre a geometria nacional.
+    `montar_mosaico_nacional()` lê os JSON já gerados de cada UF e funde
+    `vencedores`/`candidatos` por chave (`c()` direto — checado
+    manualmente contra o output de 2022: 0 colisões de `SQ_CANDIDATO`
+    entre UFs, e códigos de unidade do IBGE nunca colidem entre estados).
+    `lisa_disponivel = FALSE` sempre (misturar vizinhança de 27 eleições
+    diferentes não tem sentido estatístico). Validado: o mosaico de
+    Governador 2º turno mostra Raquel Lyra (PE, 58,7%) e Tarcísio (SP,
+    55,3%) corretos, e RJ aparece sem 2º turno (Cláudio Castro venceu no
+    1º turno em 2022, correto).
+  - **Legenda por partido no mosaico nacional**: no modo Vencedor, se o
+    cargo é Governador/Senador *e* a UF é Brasil, a legenda agrupa por
+    partido (`v.partido`) em vez de por candidato (`v.nome`) — sem isso
+    seriam dezenas de linhas, uma por candidato de cada UF.
+    `renderizarLegenda()` recebe um flag `porPartido`
+    (`main.js::legendaPorPartido()`, verdadeiro só nesse caso específico).
+  - **Espessura de linha por zoom**: `Mapa.pesoLinha(unidade, zoom)`
+    (`mapa.js`) calcula o `weight` a partir do zoom atual do Leaflet —
+    mais fina zoom out (não vira uma mancha de contorno com os 5.570
+    municípios do Brasil inteiro na tela), mais grossa zoom in. UF
+    sempre ~2x mais grossa que município/micro/meso (com teto), pra
+    marcar a fronteira estadual sem exagerar. Recalculada num listener
+    `zoomend` que só ajusta o `weight` da layer ativa via `setStyle()`
+    (não re-renderiza cores, só a espessura).
+  - **Padrão inicial Presidente/Brasil**: o bootstrap em `main.js` não
+    passa mais pela cascata normal de eventos (que preserva a seleção
+    anterior, correto pra trocas do usuário) — na 1ª carga, força
+    Cargo=Presidente e UF=Brasil explicitamente via um parâmetro
+    `preferido` novo em `Seletores.popularCargos()`/`popularUfs()`.
+    Rótulo do pseudo-UF nacional também mudou de "Brasil (nacional)"
+    pra só "Brasil".
+  - **Candidato ordenado do mais pro menos votado**: como o JSON só
+    guarda `%` por unidade (não dá pra comparar "mais votado" somando
+    percentuais de unidades com totais diferentes), `R/09_exportar.R`
+    ganhou `pct_geral` por candidato — % sobre o total de votos de
+    *todo* o escopo (todas as unidades somadas), calculado direto de
+    `dados_agregados$votos`. `Seletores.popularCandidatos()` ordena por
+    esse campo. Nota: pra Presidente filtrado por UF (que reaproveita o
+    arquivo nacional, ver acima), a ordem reflete o total nacional, não
+    o da UF selecionada — aceitável dado que evita recomputar um arquivo
+    por UF só pra isso; revisitar se um dia isso incomodar na prática.
+  - **"Não significante" do LISA por tema**: `Cores.PALETA_LISA` virou
+    `{escuro: {...}, claro: {...}}` — no escuro, cinza mais escuro
+    (`#4a4a4a`, o padrão antigo `#e0e0e0` contrastava demais contra o
+    fundo escuro); no claro, mais translúcido em vez de mais escuro
+    (`Cores.opacidadeLisa()`, `fillOpacity` 0.35 em vez de 0.9 só pra
+    essa categoria). `estiloLisa()` em `mapa.js` já recebe `temaAtual`
+    (rastreado internamente, atualizado em `definirTema()`).
+  - Testes: `pct_geral` adicionado à asserção existente em
+    `test-exportar.R`; suíte completa passando (71 testes, 0 falhas)
+    depois da rodada nacional regenerada com todos esses campos novos
+    (500 combinações agora, vs. 272 antes: +216 Presidente por UF, +8
+    mosaico Governador, +4 mosaico Senador — Senado não tem 2º turno).
+  **Verificação feita**: toda a cadeia de seleção (Cargo→UF→Turno→
+  Unidade→arquivo) resimulada em R contra o `index.json` de 500
+  entradas — todos os caminhos resolvem, incluindo especificamente
+  UF=Brasil pra Governador/Senador (mosaico) e Presidente filtrado por
+  UF (pareamento). **Não verificado**: render visual real no navegador
+  (sem ferramenta de automação de browser neste ambiente) — em
+  particular o comportamento da espessura de linha ao dar zoom, a
+  legenda por partido, e a cor do "Não significante" nos dois temas
+  ainda dependem de validação visual do usuário.
+- Ajustes seguintes (validados visualmente pelo usuário), resumo — onde
+  divergem do texto acima, vale este:
+  - Rótulo do pseudo-UF nacional é "Brasil"; "Brasil" sempre 1º no
+    seletor de UF, demais em ordem alfabética.
+  - Título do painel: "Dashboard Geografia Eleitoral".
+  - Contorno de UF é uma **layer separada por cima** da unidade ativa
+    (`renderizarContornoUf()` em `mapa.js`, só traço, `interactive:
+    false`, arquivo `output/geo/ufs_{uf}.topojson`), não só o peso da
+    linha quando a unidade selecionada é "UF". Multiplicador atual da
+    espessura da UF: 3,15x da base, teto 1,98.
+  - Scrollbar do painel segue o tema via `color-scheme` (+
+    `scrollbar-color`/`::-webkit-scrollbar` no CSS).
+  - **Trocar de tema redesenha a layer ativa** (`Mapa.definirTema()`
+    chama `renderizar(ultimoRender, {ajustarVista: false})`) — antes só
+    os tiles mudavam e os polígonos ficavam com o estilo do tema
+    anterior. "Não significante" do LISA no claro: `#d4d4d4`, opacidade
+    0,5. Legenda do LISA atualiza via evento `tema-alterado`.
+  - `python -m http.server 8000` na raiz do projeto é o servidor local;
+    abrir `frontend/index.html` por `file://` não funciona (o `fetch` de
+    `../output/index.json` é bloqueado).
+- **Publicação**: GitHub Pages servindo a raiz do branch `master`
+  (`index.html` na raiz redireciona pra `frontend/`). Não há build:
+  alterar = `commit` + `push`. Ponto de atenção: os tiles do tema claro
+  usam `tile.openstreetmap.org`, cuja política de uso não admite tráfego
+  alto — trocar de provedor se o painel ganhar audiência.
+- Próximo passo: os itens que sobram são polimento (cores de partido,
+  mencionado pelo usuário como não urgente) e, com o Pages no ar,
+  2026 quando os dados saírem (`--ano=2026 --uf=all`). Ver
   `C:\Users\felip\.claude\plans\proud-growing-metcalfe.md` para o plano de
-  fases completo.
+  fases completo (esse arquivo ainda está com o texto da fase de piloto —
+  vale atualizar quando houver uma pausa maior no ritmo do projeto).

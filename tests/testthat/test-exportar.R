@@ -33,6 +33,7 @@ testthat::test_that("montar_resultado_unidade monta vencedores/candidatos com co
   testthat::expect_equal(resultado$vencedores$B$cor, "#003882")
   testthat::expect_equal(resultado$candidatos[["1"]]$cor, "#C0272D")
   testthat::expect_equal(resultado$candidatos[["1"]]$valores$A, 60)
+  testthat::expect_equal(resultado$candidatos[["1"]]$pct_geral, 50)
   testthat::expect_null(resultado$candidatos[["1"]]$lisa)
 })
 

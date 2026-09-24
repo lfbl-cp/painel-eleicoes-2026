@@ -37,6 +37,7 @@ montar_resultado_unidade <- function(dados_agregados, vencedores, unidade,
                                       tabela_cores = carregar_cores_partidos(),
                                       lisa_por_candidato = NULL) {
   candidatos_ids <- unique(dados_agregados$SQ_CANDIDATO)
+  votos_totais_escopo <- sum(dados_agregados$votos)
 
   candidatos <- lapply(candidatos_ids, function(sq) {
     linhas <- dados_agregados[dados_agregados$SQ_CANDIDATO == sq, ]
@@ -45,6 +46,12 @@ montar_resultado_unidade <- function(dados_agregados, vencedores, unidade,
       nome = linhas$NM_URNA_CANDIDATO[[1]],
       partido = linhas$SG_PARTIDO[[1]],
       cor = cor_partido(linhas$SG_PARTIDO[[1]], tabela_cores),
+      # % do candidato sobre o total de votos de todo o escopo (todas as
+      # unidades somadas) — não confundir com `valores`, que é o % por
+      # unidade. Usado pelo front-end só pra ordenar o seletor de
+      # candidato do mais votado pro menos votado (não é exibido como
+      # resultado eleitoral em si).
+      pct_geral = round(100 * sum(linhas$votos) / votos_totais_escopo, 2),
       valores = stats::setNames(
         as.list(round(linhas$pct_validos, 2)),
         as.character(linhas$unidade_id)

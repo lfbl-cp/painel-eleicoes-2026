@@ -12,6 +12,18 @@ const Cores = (() => {
   };
   const OPACIDADE_LISA_NAO_SIGNIFICANTE = { escuro: 0.9, claro: 0.5 };
 
+  // Nomes exibidos: tipologia de territórios eleitorais de Terron (2009),
+  // como no Dashboard-legislativo-2026. Os códigos HH/LL/HL/LH continuam
+  // internos (vêm assim do pipeline, R/08_lisa.R). Ordem = ordem da legenda.
+  const NOMES_LISA = {
+    HH: "Território forte",
+    LL: "Território fraco",
+    HL: "Forte isolado",
+    LH: "Fraco isolado",
+    "Não significante": "Não significante",
+  };
+  const nomeLisa = (cluster) => NOMES_LISA[cluster] || cluster;
+
   function hexParaRgb(hex) {
     const limpo = hex.replace("#", "");
     return {
@@ -51,6 +63,14 @@ const Cores = (() => {
     });
   }
 
+  // Escala divergente do swing: 0 = quase branco; ganho vai pra cor do
+  // candidato, perda pra cor do adversário (o outro candidato do par),
+  // saturando em ±`escalaMax` p.p.
+  function divergente(valor, escalaMax, corGanho, corPerda) {
+    const t = Math.min(1, Math.abs(valor) / escalaMax);
+    return interpolarComBranco(valor >= 0 ? corGanho : corPerda, t);
+  }
+
   function corLisa(cluster, tema) {
     const paleta = PALETA_LISA[tema] || PALETA_LISA.escuro;
     return paleta[cluster] || "#cccccc";
@@ -63,5 +83,5 @@ const Cores = (() => {
     return 0.9;
   }
 
-  return { interpolarComBranco, escurecer, corLisa, opacidadeLisa, PALETA_LISA };
+  return { interpolarComBranco, escurecer, divergente, corLisa, opacidadeLisa, PALETA_LISA, NOMES_LISA, nomeLisa };
 })();

@@ -110,6 +110,35 @@ const Mapa = (() => {
     };
   }
 
+  // No swing, `resultado` é o JSON de swing (R/10_swing.R) e `sqCandidato`
+  // é a chave do candidato no par ("lula"/"flavio"); o adversário é o
+  // outro candidato do par, cuja cor marca a perda de votos.
+  function adversarioSwing(resultado, chave) {
+    const outra = Object.keys(resultado.candidatos).find((k) => k !== chave);
+    return resultado.candidatos[outra];
+  }
+
+  function estiloSwing(feature, resultado, propId, unidade, chave) {
+    const id = String(feature.properties[propId]);
+    const candidato = resultado.candidatos[chave];
+    const valor = candidato.valores[id];
+    const peso = pesoLinha(unidade, mapa.getZoom());
+    if (!valor) {
+      return { fillColor: "#999999", fillOpacity: 0.6, color: "#ffffff", weight: peso };
+    }
+    const adversario = adversarioSwing(resultado, chave);
+    return {
+      fillColor: Cores.divergente(valor.swing, resultado.escala_max, candidato.cor, adversario.cor),
+      fillOpacity: 0.9,
+      color: "#ffffff",
+      weight: peso,
+    };
+  }
+
+  function formatarSwing(valor) {
+    return `${valor > 0 ? "+" : ""}${valor.toFixed(1)} p.p.`;
+  }
+
   function popupTexto(feature, resultado, propId, unidade, modo, sqCandidato) {
     const id = String(feature.properties[propId]);
     const nomeUnidade =
@@ -118,6 +147,18 @@ const Mapa = (() => {
       feature.properties.name_meso ||
       feature.properties.name_state ||
       id;
+
+    if (modo === "swing") {
+      const c = resultado.candidatos[sqCandidato];
+      const v = c.valores[id];
+      if (!v) return `<b>${nomeUnidade}</b><br>sem dados`;
+      return (
+        `<b>${nomeUnidade}</b><br>` +
+        `${c.nome_base} (${resultado.ano_base}): ${v.base.toFixed(1)}%<br>` +
+        `${c.rotulo} (${resultado.ano}): ${v.atual.toFixed(1)}%<br>` +
+        `Swing: <b>${formatarSwing(v.swing)}</b>`
+      );
+    }
 
     if (modo === "vencedor") {
       const v = resultado.vencedores[id];
@@ -131,7 +172,7 @@ const Mapa = (() => {
 
     if (modo === "lisa") {
       const cluster = candidato && candidato.lisa ? candidato.lisa[id] : "sem dados";
-      return `<b>${nomeUnidade}</b><br>${candidato.nome}: ${linhaPct}<br>Cluster: ${cluster}`;
+      return `<b>${nomeUnidade}</b><br>${candidato.nome}: ${linhaPct}<br>Cluster: <b>${Cores.nomeLisa(cluster)}</b>`;
     }
 
     return `<b>${nomeUnidade}</b><br>${candidato.nome}: ${linhaPct}`;
@@ -176,6 +217,7 @@ const Mapa = (() => {
       style: (feature) => {
         if (modo === "vencedor") return estiloVencedor(feature, resultado, propId, unidade);
         if (modo === "lisa") return estiloLisa(feature, resultado, propId, unidade, sqCandidato);
+        if (modo === "swing") return estiloSwing(feature, resultado, propId, unidade, sqCandidato);
         return estiloIsolado(feature, resultado, propId, unidade, sqCandidato);
       },
       onEachFeature: (feature, layer) => {
@@ -193,5 +235,5 @@ const Mapa = (() => {
     }
   }
 
-  return { iniciar, renderizar, definirTema };
+  return { iniciar, renderizar, definirTema, formatarSwing };
 })();

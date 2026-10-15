@@ -22,6 +22,14 @@ const Dados = (() => {
     return indice.entradas;
   }
 
+  // Combinações do swing presidencial (lista `swing` do index.json, ver
+  // `gerar_swing_presidente()` em pipeline/run_pipeline.R). Vazia se o
+  // índice não tiver swing.
+  function swing() {
+    if (!indice) throw new Error("Chame carregarIndice() antes de swing().");
+    return indice.swing || [];
+  }
+
   async function carregarGeo(caminho) {
     if (cacheGeo.has(caminho)) return cacheGeo.get(caminho);
     const resp = await fetch(`${BASE}/${caminho}`);
@@ -40,5 +48,25 @@ const Dados = (() => {
     return json;
   }
 
-  return { carregarIndice, entradas, carregarGeo, carregarResultado };
+  // Cards + rankings de um ano (output/candidatos/{ano}.json, ver
+  // R/11_candidatos.R) -- carregado uma vez por ano. Cacheia a promessa pra
+  // chamadas simultâneas (mapa e painel da direita) não baixarem duas vezes.
+  const cacheCandidatos = new Map();
+  function carregarCandidatos(ano) {
+    if (!cacheCandidatos.has(ano)) {
+      const p = fetch(`${BASE}/output/candidatos/${ano}.json`).then((resp) => {
+        if (!resp.ok) throw new Error(`Falha ao carregar candidatos de ${ano}: ${resp.status}`);
+        return resp.json();
+      });
+      p.catch(() => cacheCandidatos.delete(ano));
+      cacheCandidatos.set(ano, p);
+    }
+    return cacheCandidatos.get(ano);
+  }
+
+  function urlFoto(ano, sq) {
+    return `${BASE}/output/fotos/${ano}/${sq}.jpg`;
+  }
+
+  return { carregarIndice, entradas, swing, carregarGeo, carregarResultado, carregarCandidatos, urlFoto };
 })();

@@ -4,10 +4,11 @@
 
 Painel público, interativo, de resultados eleitorais do Brasil (presidente,
 governador, senador — 1º e 2º turno), cobrindo as 27 UFs, com resultado
-detalhado por município e agregação em microrregião, mesorregião e UF. Usa
-dados de 2022 como piloto/placeholder até a divulgação dos dados de 2026;
-trocar de eleição é reexecutar o pipeline com outro `--ano`, sem mudar
-arquitetura.
+detalhado por município e agregação em microrregião, mesorregião e UF.
+Cobre 2022 e 2026 (seletor "Eleição" no front-end), mais o swing
+presidencial do 1º turno 2022 → 2026. Adicionar uma eleição é reexecutar o
+pipeline com outro `--ano` — o `index.json` é mesclado por ano, não
+sobrescrito.
 
 Evolução de um protótipo estático em R (`C:\Users\felip\Desktop\Mapas
 eleitorais R`), que cobria só Pernambuco com um script por combinação
@@ -170,8 +171,11 @@ Rscript pipeline/run_pipeline.R --ano=2022 --uf=PE
 # Nacional
 Rscript pipeline/run_pipeline.R --ano=2022 --uf=all
 
-# 2026, quando os dados forem divulgados
+# 2026 (também gera o swing 2022 -> 2026 no fim)
 Rscript pipeline/run_pipeline.R --ano=2026 --uf=all
+
+# Só (re)gerar o swing, a partir dos JSON já exportados
+Rscript pipeline/run_pipeline.R --ano=2026 --so-swing [--ano-base=2022]
 
 # Setup do ambiente R
 Rscript -e 'renv::restore()'
@@ -489,9 +493,79 @@ Rscript -e 'renv::restore()'
   alterar = `commit` + `push`. Ponto de atenção: os tiles do tema claro
   usam `tile.openstreetmap.org`, cuja política de uso não admite tráfego
   alto — trocar de provedor se o painel ganhar audiência.
+- **Dados de 2026 + seletor de eleição + swing (out/2026)**:
+  - ZIP do TSE de 2026 (gerado em 11/10/2026, só 1º turno — o 2º é em
+    25/10) com o mesmo layout de 2022 (um CSV por UF + `_BR.csv` pro
+    Presidente); copiado de `Documents/Regressão espacial eleições 2026/
+    data/raw/tse/` pra `data-raw/downloads/2026/votacao_candidato_munzona/`.
+    Rodado com `Rscript --vanilla` usando a biblioteca global do R 4.6.1
+    (o `renv.lock` ainda é do R 4.4.2 e não restaura nesta máquina).
+  - Toda entrada do `index.json` tem `ano`. `mesclar_index()`
+    (`R/09_exportar.R`) mescla por chave ano/UF/cargo/turno/unidade em vez
+    de sobrescrever o índice; entradas antigas sem `ano` têm o ano
+    inferido do caminho (`output/results/{ano}/`). Rodar de novo quando
+    sair o 2º turno de 2026 só acrescenta as entradas novas.
+  - `lisa_disponivel` agora é falso quando não há vizinhança (DF), em vez
+    de sempre verdadeiro pra município.
+  - Swing (`R/10_swing.R` + `gerar_swing_presidente()` no pipeline):
+    % de votos válidos no 1º turno de 2026 − % no 1º turno de 2022, por
+    unidade. Lula compara com Lula; **Flávio Bolsonaro compara com Jair
+    Bolsonaro** (`PARES_SWING_PADRAO`). Calculado a partir dos JSON já
+    exportados dos dois anos (o ZIP de 2022 não está mais em disco), então
+    herda o arredondamento de 2 casas (±0,01 p.p.). Sai em
+    `output/results/2026/BR_{unidade}_swing_presidente_t1.json` e na lista
+    `swing` do `index.json` (nacional + pareado com a geometria de cada UF,
+    igual ao Presidente por UF). `escala_max` = p95 do |swing| arredondado
+    pra cima em múltiplos de 5, comum aos dois candidatos.
+  - Front-end: seletor "Eleição" (`sel-ano`, mais recente primeiro) no
+    topo da cascata Eleição → Cargo → UF → Turno → Unidade; botão "Swing
+    Lula × Flávio" troca a fonte de entradas pra lista `swing` (esconde
+    Eleição/Cargo/Turno/Modo, mantém UF/Unidade) e mostra um mapa
+    divergente: cor do candidato = ganho, cor do adversário do par = perda.
+  - Limitação conhecida: em 2026 o Senado elege **2** por UF, mas o modo
+    Vencedor ainda pinta só o mais votado de cada unidade.
+- **Painel da direita (ranking + card com foto) e legenda LISA de Terron**,
+  no modelo do `Documents\Dashboard-legislativo-2026` (`card.js`,
+  `painel_mapa.js`, `lisa.js` de lá):
+  - `R/11_candidatos.R` (`exportar_candidatos(ano)`, roda no fim de
+    `--uf=all` ou sozinho com `--so-candidatos`) gera
+    `output/candidatos/{ano}.json` — card (consulta_cand: nome completo,
+    número, idade na data do 1º turno, gênero, ocupação, instrução,
+    coligação; redes do `rede_social_candidato`, mesma limpeza de URL do
+    projeto legislativo; votos e situação por turno da votação munzona) e
+    `ranking[cargo][turno][escopo]` com todos os candidatos do mais ao
+    menos votado — e as fotos oficiais em `output/fotos/{ano}/{sq}.jpg`
+    (ZIP `foto_cand{ano}_{UF}_div.zip`; Presidente no ZIP "BR"). CPF,
+    e-mail e título nunca são lidos. Ranking do Presidente usa o total
+    oficial **com** exterior no escopo Brasil (por isso pode diferir em
+    0,01 p.p. do `pct_geral` do mapa, que é sem exterior); escopo UF = só
+    eleitores da UF; Governador/Senador em "Brasil" = todos os candidatos
+    das 27 UFs, % sobre os válidos da própria UF.
+  - Arquivos baixados do TSE em out/2026 para
+    `data-raw/downloads/{2022,2026}/{consulta_cand,fotos}/` (e o munzona de
+    2022, ~555MB, de volta em disco). Validado: 2022 Lula 48,43% /
+    Bolsonaro 43,20% (1º) e 50,90% / 49,10% (2º); 2026 Flávio 47,03% /
+    Lula 45,16%; todo SQ que aparece no mapa tem card; 496/496 (2026) e
+    436/437 (2022) com foto.
+  - `frontend/js/painel_direito.js`: modo Vencedor → "Mais votados" (top
+    10, foto, partido, situação, % e votos; Senado com seção "Eleitos"
+    primeiro); clicar abre o mapa contínuo do candidato (no mosaico
+    nacional de Governador/Senador, troca pra UF dele). Modos contínuo/
+    LISA/swing → card do candidato (Presidente numa UF ganha a linha "Em
+    {UF}" com %, votos e posição). Sem foto → iniciais na cor do partido.
+    No celular (≤ 700px) o painel vai pro fim do painel principal. O swing
+    JSON ganhou `sq`/`sq_base` pra o card achar o candidato.
+  - Seletor de candidato ordenado pelo ranking do escopo (resolve o
+    Presidente filtrado por UF, antes ordenado pelo % nacional) e preserva
+    a seleção ao trocar de turno/unidade.
+  - Legenda LISA: tipologia de Terron (2009) — HH Território forte, LL
+    Território fraco, HL Forte isolado, LH Fraco isolado — com a contagem
+    de unidades de cada classe na geometria desenhada e nota explicativa;
+    popup também usa os nomes. Códigos HH/LL/HL/LH seguem internos.
 - Próximo passo: os itens que sobram são polimento (cores de partido,
-  mencionado pelo usuário como não urgente) e, com o Pages no ar,
-  2026 quando os dados saírem (`--ano=2026 --uf=all`). Ver
+  mencionado pelo usuário como não urgente), o 2º turno de 2026 quando o
+  TSE publicar (25/10 — mesmo comando `--ano=2026 --uf=all`), e as 2 vagas
+  do Senado em 2026 no modo Vencedor. Ver
   `C:\Users\felip\.claude\plans\proud-growing-metcalfe.md` para o plano de
   fases completo (esse arquivo ainda está com o texto da fase de piloto —
   vale atualizar quando houver uma pausa maior no ritmo do projeto).

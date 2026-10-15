@@ -8,7 +8,8 @@ if (length(raiz) == 0 || !dir.exists(file.path(raiz, "R"))) raiz <- getwd()
 
 for (arquivo in c(
   "01_aquisicao.R", "02_leitura.R", "03_limpeza.R", "04_crosswalk.R",
-  "05_geo_join.R", "06_cores.R", "07_vencedores.R", "08_lisa.R", "09_exportar.R"
+  "05_geo_join.R", "06_cores.R", "07_vencedores.R", "08_lisa.R", "09_exportar.R",
+  "10_swing.R", "11_candidatos.R"
 )) {
   source(file.path(raiz, "R", arquivo))
 }
@@ -31,6 +32,17 @@ UFS_BRASIL <- c(
 #' município, ou "all") — mapeia para "all" (todos os municípios do
 #' Brasil), que é o que a abrangência federal do Presidente precisa.
 uf_para_geobr <- function(uf) if (identical(uf, "BR")) "all" else uf
+
+#' Caminho do TopoJSON de uma UF/unidade, na convenção de nome que
+#' `processar_uf()` usa ao exportar a geometria.
+caminho_geo <- function(uf, unidade, diretorio_saida = "output") {
+  file.path(diretorio_saida, "geo", switch(unidade,
+    municipio = sprintf("municipios_%s.topojson", uf),
+    microrregiao = sprintf("microrregioes_%s.topojson", uf),
+    mesorregiao = sprintf("mesorregioes_%s.topojson", uf),
+    uf = sprintf("ufs_%s.topojson", uf)
+  ))
+}
 
 #' Roda o pipeline completo (Presidente/Governador/Senador, conforme o que
 #' existir para a UF pedida) para uma UF, exportando topojson + json de
@@ -109,15 +121,10 @@ processar_uf <- function(ano, uf, diretorio_saida = "output") {
         exportar_resultado_json(resultado, caminho)
 
         entradas_index[[length(entradas_index) + 1]] <- list(
-          uf = uf, cargo = cargo, turno = turno, unidade = unidade,
-          lisa_disponivel = unidade == "municipio",
+          ano = ano, uf = uf, cargo = cargo, turno = turno, unidade = unidade,
+          lisa_disponivel = unidade == "municipio" && !is.null(listw_municipio),
           arquivo_resultado = caminho,
-          arquivo_geo = file.path(diretorio_saida, "geo", switch(unidade,
-            municipio = sprintf("municipios_%s.topojson", uf),
-            microrregiao = sprintf("microrregioes_%s.topojson", uf),
-            mesorregiao = sprintf("mesorregioes_%s.topojson", uf),
-            uf = sprintf("ufs_%s.topojson", uf)
-          ))
+          arquivo_geo = caminho_geo(uf, unidade, diretorio_saida)
         )
       }
     }
@@ -147,18 +154,13 @@ gerar_entradas_presidente_por_uf <- function(ano, entradas, ufs, diretorio_saida
     for (turno in turnos_presidente) {
       for (unidade in names(UNIDADES_COLUNA)) {
         extras[[length(extras) + 1]] <- list(
-          uf = uf, cargo = "Presidente", turno = turno, unidade = unidade,
+          ano = ano, uf = uf, cargo = "Presidente", turno = turno, unidade = unidade,
           lisa_disponivel = FALSE,
           arquivo_resultado = file.path(
             diretorio_saida, "results", ano,
             sprintf("BR_%s_presidente_t%d.json", unidade, turno)
           ),
-          arquivo_geo = file.path(diretorio_saida, "geo", switch(unidade,
-            municipio = sprintf("municipios_%s.topojson", uf),
-            microrregiao = sprintf("microrregioes_%s.topojson", uf),
-            mesorregiao = sprintf("mesorregioes_%s.topojson", uf),
-            uf = sprintf("ufs_%s.topojson", uf)
-          ))
+          arquivo_geo = caminho_geo(uf, unidade, diretorio_saida)
         )
       }
     }
@@ -211,15 +213,10 @@ montar_mosaico_nacional <- function(ano, cargo, ufs, diretorio_saida = "output")
       exportar_resultado_json(resultado, caminho_saida)
 
       extras[[length(extras) + 1]] <- list(
-        uf = "BR", cargo = cargo, turno = as.integer(chave), unidade = unidade,
+        ano = ano, uf = "BR", cargo = cargo, turno = as.integer(chave), unidade = unidade,
         lisa_disponivel = FALSE,
         arquivo_resultado = caminho_saida,
-        arquivo_geo = file.path(diretorio_saida, "geo", switch(unidade,
-          municipio = "municipios_BR.topojson",
-          microrregiao = "microrregioes_BR.topojson",
-          mesorregiao = "mesorregioes_BR.topojson",
-          uf = "ufs_BR.topojson"
-        ))
+        arquivo_geo = caminho_geo("BR", unidade, diretorio_saida)
       )
     }
   }
@@ -227,31 +224,92 @@ montar_mosaico_nacional <- function(ano, cargo, ufs, diretorio_saida = "output")
   extras
 }
 
+#' Swing presidencial do 1º turno entre `ano_base` e `ano` (ver
+#' `R/10_swing.R`), nas 4 unidades. Lê o resultado nacional ("BR") já
+#' exportado dos dois anos e escreve um JSON de swing por unidade; como
+#' no Presidente por UF, o mesmo arquivo nacional é pareado com a
+#' geometria de cada UF pra gerar as entradas filtradas por UF.
+#'
+#' @return Entradas para a lista `swing` do index.json.
+gerar_swing_presidente <- function(ano, ano_base, ufs, turno = 1L, diretorio_saida = "output") {
+  entradas <- list()
+
+  for (unidade in names(UNIDADES_COLUNA)) {
+    arquivo <- function(a) file.path(diretorio_saida, "results", a, sprintf("BR_%s_presidente_t%d.json", unidade, turno))
+    if (!file.exists(arquivo(ano)) || !file.exists(arquivo(ano_base))) {
+      cli::cli_warn("Swing {ano_base}->{ano} ({unidade}) pulado: falta {.file {arquivo(ano)}} ou {.file {arquivo(ano_base)}}.")
+      next
+    }
+
+    swing <- montar_swing_unidade(
+      jsonlite::fromJSON(arquivo(ano), simplifyVector = FALSE),
+      jsonlite::fromJSON(arquivo(ano_base), simplifyVector = FALSE),
+      ano, ano_base
+    )
+    caminho <- file.path(diretorio_saida, "results", ano, sprintf("BR_%s_swing_presidente_t%d.json", unidade, turno))
+    exportar_resultado_json(swing, caminho)
+
+    for (uf in c("BR", ufs)) {
+      entradas[[length(entradas) + 1]] <- list(
+        ano = ano, ano_base = ano_base, uf = uf, cargo = "Presidente", turno = turno, unidade = unidade,
+        arquivo_resultado = caminho,
+        arquivo_geo = caminho_geo(uf, unidade, diretorio_saida)
+      )
+    }
+  }
+
+  entradas
+}
+
 if (identical(environmentName(globalenv()), "R_GlobalEnv") && sys.nframe() == 0 && !interactive()) {
   args <- commandArgs(trailingOnly = TRUE)
   ano <- as.integer(sub("--ano=", "", grep("--ano=", args, value = TRUE)))
   uf_arg <- sub("--uf=", "", grep("--uf=", args, value = TRUE))
+  # --ano-base: eleição de comparação do swing (padrão: 4 anos antes).
+  # --so-swing: só (re)gera o swing a partir dos JSON já exportados, sem
+  # reprocessar os dados do TSE. --so-candidatos: só (re)gera cards, fotos e
+  # rankings (R/11_candidatos.R).
+  ano_base <- as.integer(sub("--ano-base=", "", grep("--ano-base=", args, value = TRUE)))
+  if (length(ano_base) == 0) ano_base <- ano - 4L
+  so_swing <- "--so-swing" %in% args
+  so_candidatos <- "--so-candidatos" %in% args
 
-  # "all" = as 27 UFs (Governador/Senador) + "BR" (Presidente, abrangência
-  # nacional) — cada uma processada por processar_uf(), que já filtra os
-  # cargos existentes no arquivo lido de cada uma.
-  ufs <- if (identical(uf_arg, "all")) c(UFS_BRASIL, "BR") else uf_arg
+  if (so_candidatos) {
+    exportar_candidatos(ano)
+  } else if (!so_swing) {
+    # "all" = as 27 UFs (Governador/Senador) + "BR" (Presidente, abrangência
+    # nacional) — cada uma processada por processar_uf(), que já filtra os
+    # cargos existentes no arquivo lido de cada uma.
+    ufs <- if (identical(uf_arg, "all")) c(UFS_BRASIL, "BR") else uf_arg
 
-  entradas <- list()
-  for (uf in ufs) {
-    entradas <- c(entradas, processar_uf(ano, uf))
+    entradas <- list()
+    for (uf in ufs) {
+      entradas <- c(entradas, processar_uf(ano, uf))
+    }
+
+    # Só faz sentido gerar as combinações extras (Presidente por UF,
+    # mosaico nacional de Governador/Senador) numa rodada nacional — pedem
+    # o resultado "BR" já exportado acima, que só existe com --uf=all.
+    if (identical(uf_arg, "all")) {
+      cli::cli_inform("Gerando combinações extras (Presidente por UF, mosaico nacional)...")
+      entradas <- c(entradas, gerar_entradas_presidente_por_uf(ano, entradas, UFS_BRASIL))
+      entradas <- c(entradas, montar_mosaico_nacional(ano, "Governador", UFS_BRASIL))
+      entradas <- c(entradas, montar_mosaico_nacional(ano, "Senador", UFS_BRASIL))
+    }
+
+    # Mescla com o índice existente: as entradas dos outros anos continuam
+    # no seletor de eleição do front-end.
+    exportar_index_json(mesclar_index(entradas))
+    cli::cli_inform("Pronto: {length(entradas)} combinações exportadas para output/.")
+    if (identical(uf_arg, "all")) exportar_candidatos(ano)
   }
 
-  # Só faz sentido gerar as combinações extras (Presidente por UF,
-  # mosaico nacional de Governador/Senador) numa rodada nacional — pedem
-  # o resultado "BR" já exportado acima, que só existe com --uf=all.
-  if (identical(uf_arg, "all")) {
-    cli::cli_inform("Gerando combinações extras (Presidente por UF, mosaico nacional)...")
-    entradas <- c(entradas, gerar_entradas_presidente_por_uf(ano, entradas, UFS_BRASIL))
-    entradas <- c(entradas, montar_mosaico_nacional(ano, "Governador", UFS_BRASIL))
-    entradas <- c(entradas, montar_mosaico_nacional(ano, "Senador", UFS_BRASIL))
+  if (so_swing || (identical(uf_arg, "all") && !so_candidatos)) {
+    cli::cli_inform("Gerando swing presidencial {ano_base} -> {ano} (1º turno)...")
+    entradas_swing <- gerar_swing_presidente(ano, ano_base, UFS_BRASIL)
+    if (length(entradas_swing) > 0) {
+      exportar_index_json(mesclar_index(entradas_swing, campo = "swing"))
+    }
+    cli::cli_inform("Swing: {length(entradas_swing)} combinações exportadas.")
   }
-
-  exportar_index_json(montar_index(entradas))
-  cli::cli_inform("Pronto: {length(entradas)} combinações exportadas para output/.")
 }

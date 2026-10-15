@@ -103,6 +103,45 @@ montar_index <- function(entradas) {
   list(gerado_em = format(Sys.time(), "%Y-%m-%dT%H:%M:%S"), entradas = entradas)
 }
 
+#' Ano de uma entrada do índice. Entradas geradas antes do seletor de
+#' eleição no front-end não têm o campo `ano` — nesse caso ele é inferido
+#' do caminho do resultado (`output/results/{ano}/...`), que sempre o
+#' carrega.
+ano_da_entrada <- function(entrada) {
+  if (!is.null(entrada$ano)) return(as.integer(entrada$ano))
+  as.integer(sub(".*/results/([0-9]{4})/.*", "\\1", entrada$arquivo_resultado))
+}
+
+chave_entrada <- function(entrada) {
+  paste(ano_da_entrada(entrada), entrada$uf, entrada$cargo, entrada$turno, entrada$unidade, sep = "|")
+}
+
+#' Mescla entradas novas no índice já existente em disco, em vez de
+#' sobrescrevê-lo — cada ano (2022, 2026...) é uma rodada separada do
+#' pipeline, e rodar um ano não pode apagar as entradas dos outros do
+#' seletor de eleição. Uma entrada nova substitui a existente de mesma
+#' chave (ano/UF/cargo/turno/unidade); as demais são mantidas.
+#'
+#' @param entradas_novas Lista de entradas (cada uma com `ano`).
+#' @param caminho index.json existente (ignorado se não existir).
+#' @param campo Lista do índice a mesclar: "entradas" (resultados) ou
+#'   "swing" (ver `R/10_swing.R`).
+mesclar_index <- function(entradas_novas, caminho = "output/index.json", campo = "entradas") {
+  index <- if (file.exists(caminho)) jsonlite::fromJSON(caminho, simplifyVector = FALSE) else list()
+
+  existentes <- lapply(index[[campo]] %||% list(), function(e) {
+    e$ano <- ano_da_entrada(e)
+    e
+  })
+  chaves_novas <- vapply(entradas_novas, chave_entrada, character(1))
+  mantidas <- Filter(function(e) !(chave_entrada(e) %in% chaves_novas), existentes)
+
+  index$gerado_em <- format(Sys.time(), "%Y-%m-%dT%H:%M:%S")
+  index[[campo]] <- c(mantidas, entradas_novas)
+  if (is.null(index$entradas)) index$entradas <- list()
+  index
+}
+
 exportar_index_json <- function(index, caminho = "output/index.json") {
   dir.create(dirname(caminho), recursive = TRUE, showWarnings = FALSE)
   jsonlite::write_json(index, caminho, auto_unbox = TRUE, digits = 4, null = "null", na = "null")

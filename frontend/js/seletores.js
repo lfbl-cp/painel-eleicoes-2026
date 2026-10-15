@@ -3,6 +3,7 @@ const NOMES_UNIDADE = {
   municipio: "Município",
   microrregiao: "Microrregião",
   mesorregiao: "Mesorregião",
+  uf: "UF",
 };
 
 // "BR" é o pseudo-UF de abrangência nacional (ver R/01_aquisicao.R): pra
@@ -42,6 +43,12 @@ const Seletores = (() => {
     }
   }
 
+  // Eleição mais recente primeiro.
+  function popularAnos(entradas, preferido) {
+    const anos = [...new Set(entradas.map((e) => e.ano))].sort((a, b) => b - a);
+    preencher(document.getElementById("sel-ano"), anos, undefined, preferido);
+  }
+
   function popularCargos(entradas, preferido) {
     const cargos = [...new Set(entradas.map((e) => e.cargo))];
     preencher(document.getElementById("sel-cargo"), cargos, undefined, preferido);
@@ -69,14 +76,18 @@ const Seletores = (() => {
     preencher(document.getElementById("sel-unidade"), unidades, (u) => NOMES_UNIDADE[u] || u);
   }
 
-  // Do mais votado pro menos votado, usando `pct_geral` (% do candidato
-  // sobre o total de votos de todo o escopo — ver R/09_exportar.R), não
-  // a ordem em que os candidatos aparecem no JSON.
-  function popularCandidatos(resultado) {
+  // Do mais votado pro menos votado. `ordem` (SQs na ordem do ranking do
+  // escopo, ver R/11_candidatos.R) resolve o Presidente filtrado por UF, cujo
+  // `pct_geral` é nacional; sem ela (ou pra quem não está nela), vale o
+  // `pct_geral` (% sobre o total de votos do escopo — ver R/09_exportar.R).
+  // Mantém o candidato selecionado quando ele continua na lista.
+  function popularCandidatos(resultado, ordem = []) {
     const select = document.getElementById("sel-candidato");
+    const anterior = select.value;
+    const posicao = new Map(ordem.map((sq, i) => [sq, i]));
     const opcoes = Object.entries(resultado.candidatos)
-      .map(([sq, c]) => ({ sq, label: `${c.nome} (${c.partido})`, pctGeral: c.pct_geral ?? 0 }))
-      .sort((a, b) => b.pctGeral - a.pctGeral);
+      .map(([sq, c]) => ({ sq, label: `${c.nome} (${c.partido})`, pctGeral: c.pct_geral ?? 0, pos: posicao.get(sq) ?? Infinity }))
+      .sort((a, b) => a.pos - b.pos || b.pctGeral - a.pctGeral);
 
     select.innerHTML = "";
     opcoes.forEach(({ sq, label }) => {
@@ -85,6 +96,35 @@ const Seletores = (() => {
       opt.textContent = label;
       select.appendChild(opt);
     });
+    if (opcoes.some((o) => o.sq === anterior)) select.value = anterior;
+  }
+
+  // Botões do candidato no swing (um por candidato do par, ver
+  // R/10_swing.R), com `ativo` marcado. `aoEscolher(chave)` é chamado no clique.
+  function popularCandidatosSwing(resultado, ativo, aoEscolher) {
+    const container = document.getElementById("swing-candidatos");
+    container.innerHTML = "";
+    Object.entries(resultado.candidatos).forEach(([chave, c]) => {
+      const botao = document.createElement("button");
+      botao.type = "button";
+      botao.textContent = c.rotulo;
+      botao.setAttribute("aria-pressed", String(chave === ativo));
+      botao.addEventListener("click", () => aoEscolher(chave));
+      container.appendChild(botao);
+    });
+  }
+
+  // No swing, os filtros de Eleição/Cargo/Turno/Modo/Candidato não se
+  // aplicam (é sempre Presidente, 1º turno, ano atual vs. ano base) — só
+  // UF e Unidade continuam valendo.
+  function atualizarVisibilidadeSwing(ativo) {
+    ["label-ano", "label-cargo", "label-turno", "label-modo"].forEach((id) =>
+      document.getElementById(id).classList.toggle("oculto", ativo)
+    );
+    document.getElementById("swing-controles").classList.toggle("oculto", !ativo);
+    if (ativo) document.getElementById("label-candidato").classList.add("oculto");
+    const botao = document.getElementById("btn-swing");
+    botao.setAttribute("aria-pressed", String(ativo));
   }
 
   function atualizarVisibilidadeCandidato(modo) {
@@ -103,14 +143,17 @@ const Seletores = (() => {
     }
   }
 
-  function renderizarLegenda({ modo, resultado, sqCandidato, porPartido }) {
+  // `idsUnidades`: códigos das unidades desenhadas no mapa (pra contar os
+  // clusters do LISA só da geometria visível).
+  function renderizarLegenda({ modo, resultado, sqCandidato, porPartido, idsUnidades = [] }) {
     const container = document.getElementById("legenda");
     container.innerHTML = "";
 
-    const linha = (cor, texto) => {
+    const linha = (cor, texto, n) => {
       const div = document.createElement("div");
       div.className = "item";
-      div.innerHTML = `<span class="swatch" style="background:${cor}"></span><span>${texto}</span>`;
+      div.innerHTML =
+        `<span class="swatch" style="background:${cor}"></span><span>${texto}</span>` + (n != null ? `<span class="n">${n}</span>` : "");
       container.appendChild(div);
     };
 
@@ -134,9 +177,56 @@ const Seletores = (() => {
       return;
     }
 
+    if (modo === "swing") {
+      const c = resultado.candidatos[sqCandidato];
+      const adversario = Object.entries(resultado.candidatos).find(([k]) => k !== sqCandidato)[1];
+      const max = resultado.escala_max;
+      const meio = Cores.interpolarComBranco(c.cor, 0);
+      const escala = document.createElement("div");
+      escala.className = "escala-divergente";
+      escala.innerHTML =
+        `<div class="barra" style="background:linear-gradient(to right, ${adversario.cor}, ${meio}, ${c.cor})"></div>` +
+        `<div class="rotulos"><span>−${max} p.p.</span><span>0</span><span>+${max} p.p.</span></div>`;
+      container.appendChild(escala);
+
+      const resumo = document.createElement("div");
+      resumo.className = "swing-resumo";
+      resumo.innerHTML =
+        `<b>Brasil:</b> ${c.nome_base} ${c.pct_geral_base.toFixed(1)}% (${resultado.ano_base}) → ` +
+        `${c.rotulo} ${c.pct_geral.toFixed(1)}% (${resultado.ano}): <b>${Mapa.formatarSwing(c.swing_geral)}</b>`;
+      container.appendChild(resumo);
+
+      const nota = document.createElement("div");
+      nota.className = "legenda-nota";
+      nota.textContent =
+        `Swing = % dos votos válidos no 1º turno de ${resultado.ano} − % no 1º turno de ${resultado.ano_base}. ` +
+        (c.nome_base !== c.nome ? `Base de ${c.rotulo}: ${c.nome_base} (${resultado.ano_base}). ` : "") +
+        `Cor de ${c.rotulo} = ganho; cor de ${adversario.rotulo} = perda. Escala saturada em ±${max} p.p.`;
+      container.appendChild(nota);
+      return;
+    }
+
+    // Tipologia de Terron (2009), com a contagem de unidades em cada classe
+    // -- mesmo modelo do Dashboard-legislativo-2026.
     if (modo === "lisa") {
       const tema = document.body.dataset.tema;
-      Object.keys(Cores.PALETA_LISA.claro).forEach((cluster) => linha(Cores.corLisa(cluster, tema), cluster));
+      const lisa = (resultado.candidatos[sqCandidato] || {}).lisa || {};
+      const cont = {};
+      idsUnidades.forEach((id) => {
+        const cl = lisa[id];
+        if (cl) cont[cl] = (cont[cl] || 0) + 1;
+      });
+      Object.keys(Cores.NOMES_LISA).forEach((cluster) =>
+        linha(Cores.corLisa(cluster, tema), Cores.nomeLisa(cluster), (cont[cluster] || 0).toLocaleString("pt-BR"))
+      );
+      const nota = document.createElement("div");
+      nota.className = "legenda-nota";
+      nota.textContent =
+        "Tipologia de Terron (2009) sobre o Moran local do % dos válidos por município (vizinhança queen, " +
+        "199 permutações, p < 0,05). Território forte: votação alta cercada de municípios também altos; " +
+        "território fraco: baixa cercada de baixos; forte isolado: alta cercada de baixos; fraco isolado: " +
+        "baixa cercada de altos.";
+      container.appendChild(nota);
       return;
     }
 
@@ -146,7 +236,10 @@ const Seletores = (() => {
   }
 
   return {
+    popularAnos,
     popularCargos,
+    popularCandidatosSwing,
+    atualizarVisibilidadeSwing,
     popularUfs,
     popularTurnos,
     popularUnidades,
